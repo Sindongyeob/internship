@@ -21,6 +21,11 @@ TypeScript와 `@techstark/opencv-js`를 활용하여 이미지 내 문서(사각
 npm install
 ```
 
+js에서 cv설치 명령어
+```bash
+npm install @techstark/opencv-js
+```
+
 ### 2. 실행 명령어
 
 **개발 모드 (Hot Reload 지원)**
