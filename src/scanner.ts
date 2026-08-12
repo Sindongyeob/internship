@@ -1,11 +1,15 @@
 import cv from '@techstark/opencv-js';
+import { ensureCv } from './cvReady.js';
 
 /**
  * 이미지에서 종이나 화면(가장 큰 사각형)의 4개 모서리 좌표를 찾습니다.
  * @param srcMat 원본 이미지 객체 (cv.Mat)
  * @returns 4개의 꼭짓점 좌표를 담은 cv.Mat (찾지 못하면 null)
  */
-export function detectDocument(srcMat: cv.Mat): cv.Mat | null {
+export async function detectDocument(srcMat: cv.Mat): Promise<cv.Mat | null> {
+    // OpenCV.js WASM 런타임이 준비된 이후에만 cv.* API를 사용할 수 있다.
+    const cv = await ensureCv();
+
     // 사용할 메모리 사전 할당
     const gray = new cv.Mat();
     const blurred = new cv.Mat();

@@ -1,9 +1,9 @@
 {
   "name": "internship",
   "version": "1.0.0",
-  "main": "warping.js",
+  "main": "index.js",
   "scripts": {
-    "dev": "tsx watch src/warping.ts",
+    "dev": "tsx src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js"
   },
@@ -17,6 +17,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@techstark/opencv-js": "^5.0.0-release.1"
+    "@techstark/opencv-js": "^5.0.0-release.1",
+    "jimp": "^1.6.1"
   }
 }
