@@ -42,7 +42,7 @@ npm start
 \`\`\`
 
 ## 프로젝트 구조
-\`\`\`text
+```text
 internship/
 ├── src/
 │   ├── index.ts      # 애플리케이션 진입점 및 OpenCV 로드 검증
@@ -50,4 +50,4 @@ internship/
 ├── .vscode/          # VS Code 작업 공간 설정
 ├── tsconfig.json     # TypeScript 컴파일러 설정
 └── package.json      # 프로젝트 의존성 및 스크립트 설정
-\`\`\`
+```
