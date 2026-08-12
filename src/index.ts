@@ -47,12 +47,12 @@ export async function warpImage(inputPath: string): Promise<string> {
 
         contour = await detectDocument(srcMat);
         if (!contour) {
-            throw new Error('문서(사각형) 영역을 찾지 못했습니다. 배경과 문서 대비가 뚜렷한 사진으로 다시 시도해 보세요.');
-        }
-
-        warped = await warpDocument(srcMat, contour);
-        if (!warped) {
-            throw new Error('원근 변환에 실패했습니다.');
+            console.warn('문서(사각형) 영역을 찾지 못했습니다. 원본 이미지를 그대로 반환합니다.');
+        } else {
+            warped = await warpDocument(srcMat, contour);
+            if (!warped) {
+                console.warn('원근 변환에 실패했습니다. 원본 이미지를 그대로 반환합니다.');
+            }
         }
 
         // ↓↓↓ 시간 측정용 - 나중에 이 줄만 삭제하면 됨 ↓↓↓
@@ -62,7 +62,8 @@ export async function warpImage(inputPath: string): Promise<string> {
         const { dir, name, ext } = path.parse(inputPath);
         const outputPath = path.join(dir, `${name}_warp${ext}`);
 
-        const outImage = matToJimp(warped);
+        // 엣지 검출/원근 변환이 실패한 경우 원본(srcMat)을 그대로 저장한다.
+        const outImage = matToJimp(warped ?? srcMat);
         await outImage.write(outputPath as `${string}.${string}`);
 
         // ↓↓↓ 시간 측정용 - 나중에 이 블록만 삭제하면 됨 ↓↓↓
