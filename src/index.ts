@@ -1,4 +1,5 @@
-import { performance } from 'node:perf_hooks';
+import path from 'node:path';
+import { performance } from 'node:perf_hooks'; // ★ 시간 측정용 - 나중에 이 줄만 삭제하면 됨
 import { Jimp } from 'jimp';
 import { ensureCv } from './cvReady.js';
 import { detectDocument } from './scanner.js';
@@ -24,64 +25,53 @@ function matToJimp(mat: any) {
     return Jimp.fromBitmap({ data, width: mat.cols, height: mat.rows });
 }
 
-async function main(): Promise<void> {
-    const inputPath = process.argv[2] ?? 'input.jpg';
-    const outputPath = process.argv[3] ?? 'output.jpg';
-
-    console.log('OpenCV.js 로딩 중...');
+/**
+ * 입력 이미지 경로 하나만 받아 문서 검출 + 원근 변환을 수행하고,
+ * 같은 폴더에 "원본이름_warp.확장자"로 결과를 저장합니다.
+ *
+ * @param inputPath 입력 이미지 경로
+ * @returns 저장된 결과 이미지의 경로
+ */
+export async function warpImage(inputPath: string): Promise<string> {
     const cv = await ensureCv();
-    console.log('OpenCV.js 준비 완료');
-
-    console.log(`이미지 로드: ${inputPath}`);
-
-    // 파일 디코딩(Jimp.read)은 디스크/포맷에 따라 편차가 커서 측정에서 제외한다.
-    let image: JimpImage;
-    try {
-        image = await Jimp.read(inputPath);
-    } catch (error) {
-        console.error(`이미지를 불러올 수 없습니다: ${inputPath}`);
-        console.error(error);
-        process.exitCode = 1;
-        return;
-    }
+    const image = await Jimp.read(inputPath);
 
     const srcMat = jimpToMat(cv, image);
     let contour: any = null;
     let warped: any = null;
 
-    // 여기서부터 순수 연산(엣지 검출 + 원근 변환) 및 출력 저장까지 측정한다.
-    const processStart = performance.now();
-
     try {
-        contour = await detectDocument(srcMat);
+        // ↓↓↓ 시간 측정용 - 나중에 이 블록만 삭제하면 됨 ↓↓↓
+        const processStart = performance.now();
+        // ↑↑↑ 시간 측정용 ↑↑↑
 
+        contour = await detectDocument(srcMat);
         if (!contour) {
-            console.error('문서(사각형) 영역을 찾지 못했습니다. 배경과 문서 대비가 뚜렷한 사진으로 다시 시도해 보세요.');
-            console.log(`검출 실패까지 걸린 시간: ${(performance.now() - processStart).toFixed(1)}ms`);
-            process.exitCode = 1;
-            return;
+            throw new Error('문서(사각형) 영역을 찾지 못했습니다. 배경과 문서 대비가 뚜렷한 사진으로 다시 시도해 보세요.');
         }
 
         warped = await warpDocument(srcMat, contour);
-
         if (!warped) {
-            console.error('원근 변환에 실패했습니다.');
-            console.log(`실패까지 걸린 시간: ${(performance.now() - processStart).toFixed(1)}ms`);
-            process.exitCode = 1;
-            return;
+            throw new Error('원근 변환에 실패했습니다.');
         }
 
+        // ↓↓↓ 시간 측정용 - 나중에 이 줄만 삭제하면 됨 ↓↓↓
         const computeMs = performance.now() - processStart;
+        // ↑↑↑ 시간 측정용 ↑↑↑
+
+        const { dir, name, ext } = path.parse(inputPath);
+        const outputPath = path.join(dir, `${name}_warp${ext}`);
 
         const outImage = matToJimp(warped);
         await outImage.write(outputPath as `${string}.${string}`);
 
+        // ↓↓↓ 시간 측정용 - 나중에 이 블록만 삭제하면 됨 ↓↓↓
         const totalMs = performance.now() - processStart;
-
-        console.log(`완료: ${outputPath} (${warped.cols}x${warped.rows})`);
         console.log(`순수 연산 시간 (엣지 검출 + 원근 변환): ${computeMs.toFixed(1)}ms`);
         console.log(`처리 시간 (연산 + 출력 저장, 입력 로드 제외): ${totalMs.toFixed(1)}ms`);
+        // ↑↑↑ 시간 측정용 ↑↑↑
 
+        return outputPath;
     } finally {
         srcMat.delete();
         contour?.delete();
@@ -89,7 +79,16 @@ async function main(): Promise<void> {
     }
 }
 
-main().catch((error) => {
-    console.error('예상치 못한 오류 발생:', error);
-    process.exitCode = 1;
-});
+// 단독 실행 시(CLI)에만 동작: `tsx src/index.ts <입력 이미지 경로>`
+if (require.main === module) {
+    const inputPath = process.argv[2] ?? 'input.jpg';
+
+    warpImage(inputPath)
+        .then((outputPath) => {
+            console.log(`완료: ${outputPath}`);
+        })
+        .catch((error) => {
+            console.error(error);
+            process.exitCode = 1;
+        });
+}
