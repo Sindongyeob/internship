@@ -17,29 +17,29 @@ TypeScript와 `@techstark/opencv-js`를 활용하여 이미지 내 문서(사각
 
 ### 1. 패키지 설치
 프로젝트 클론 후 의존성 패키지를 설치합니다.
-\`\`\`bash
+```bash
 npm install
-\`\`\`
+```
 
 ### 2. 실행 명령어
 
 **개발 모드 (Hot Reload 지원)**
 코드 변경 사항을 즉시 반영하여 실행합니다.
-\`\`\`bash
+```bash
 npm run dev
-\`\`\`
+```
 
 **프로덕션 빌드**
 TypeScript 코드를 JavaScript로 컴파일하여 `dist` 폴더에 생성합니다.
-\`\`\`bash
+```bash
 npm run build
-\`\`\`
+```
 
 **빌드 파일 실행**
 컴파일된 JavaScript 파일을 실행합니다.
-\`\`\`bash
+```bash
 npm start
-\`\`\`
+```
 
 ## 프로젝트 구조
 ```text
