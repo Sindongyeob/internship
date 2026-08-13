@@ -7,10 +7,16 @@ import { ensureCv } from './cvReady.js';
 //  문서로 오검출하는 경우가 있어 2000을 하한으로 둔다.)
 const DETECT_MAX_DIM = 2000;
 
+// 검출된 4각형이 전체 이미지 면적에서 차지해야 하는 최소 비율.
+// 목표 문서(종이/화면)의 테두리 일부가 사진 프레임 밖으로 잘려 나가면, 실제로는
+// 문서 안의 작은 표/칸 하나가 "우연히 프레임 안에서 닫힌 가장 큰 4각형"이 되어
+// 오검출되는 경우가 있다. 이런 경우를 걸러내기 위한 하한선.
+const MIN_AREA_RATIO = 0.05;
+
 /**
  * 이미지에서 종이나 화면(가장 큰 사각형)의 4개 모서리 좌표를 찾습니다.
  * @param srcMat 원본 이미지 객체 (cv.Mat)
- * @returns 4개의 꼭짓점 좌표를 담은 cv.Mat (찾지 못하면 null)
+ * @returns 4개의 꼭짓점 좌표를 담은 cv.Mat (찾지 못했거나, 전체 이미지 대비 너무 작으면 null)
  */
 export async function detectDocument(srcMat: cv.Mat): Promise<cv.Mat | null> {
     // OpenCV.js WASM 런타임이 준비된 이후에만 cv.* API를 사용할 수 있다.
@@ -85,6 +91,21 @@ export async function detectDocument(srcMat: cv.Mat): Promise<cv.Mat | null> {
             const data = documentContour.data32S;
             for (let i = 0; i < data.length; i++) {
                 data[i] = Math.round(data[i] / scale);
+            }
+        }
+
+        // 전체 이미지 대비 너무 작은 영역이면(= 목표 문서가 프레임 밖으로 잘려서
+        // 그 안의 작은 조각이 오검출됐을 가능성이 높음) 검출 실패로 처리한다.
+        if (documentContour) {
+            const originalArea = maxArea / (scale * scale);
+            const imageArea = srcMat.cols * srcMat.rows;
+            if (originalArea / imageArea < MIN_AREA_RATIO) {
+                console.warn(
+                    `검출된 영역이 전체 이미지의 ${(originalArea / imageArea * 100).toFixed(1)}%로 너무 작습니다 ` +
+                    `(최소 ${(MIN_AREA_RATIO * 100).toFixed(0)}% 필요). 문서 테두리가 사진 프레임 밖으로 잘렸을 수 있습니다.`
+                );
+                documentContour.delete();
+                documentContour = null;
             }
         }
 
