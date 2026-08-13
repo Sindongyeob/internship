@@ -48,14 +48,17 @@ export async function warpImage(inputPath: string): Promise<string> {
         const processStart = performance.now();
         // ↑↑↑ 시간 측정용 ↑↑↑
 
-        contour = await detectDocument(srcMat);
-        if (!contour) {
-            console.warn('문서(사각형) 영역을 찾지 못했습니다. 원본 이미지를 그대로 반환합니다.');
-        } else {
-            warped = await warpDocument(srcMat, contour);
-            if (!warped) {
-                console.warn('원근 변환에 실패했습니다. 원본 이미지를 그대로 반환합니다.');
+        try {
+            contour = await detectDocument(srcMat);
+            if (!contour) {
+                console.warn('문서(사각형) 영역을 찾지 못했습니다. 원본 이미지를 그대로 반환합니다.');
+            } else {
+                // warpDocument는 실패 시에도 원본 이미지의 복사본을 반환하므로 null 체크가 필요 없다.
+                warped = await warpDocument(srcMat, contour);
             }
+        } catch (error) {
+            console.warn('에지 검출/원근 변환 중 예외가 발생했습니다. 원본 이미지를 그대로 반환합니다.', error);
+            warped = null;
         }
 
         // ↓↓↓ 시간 측정용 - 나중에 이 줄만 삭제하면 됨 ↓↓↓

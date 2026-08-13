@@ -50,12 +50,12 @@ function orderPoints(points: Point[]): [Point, Point, Point, Point] {
  *
  * @param srcMat 원본 이미지 (cv.Mat)
  * @param contour scanner.ts의 detectDocument가 반환한 4개 꼭짓점 윤곽선 (cv.Mat)
- * @returns 반듯하게 펴진 문서 이미지 (cv.Mat). 실패 시 null
+ * @returns 반듯하게 펴진 문서 이미지 (cv.Mat). 실패 시 srcMat의 복사본(원본 이미지)
  */
-export async function warpDocument(srcMat: cv.Mat, contour: cv.Mat): Promise<cv.Mat | null> {
+export async function warpDocument(srcMat: cv.Mat, contour: cv.Mat): Promise<cv.Mat> {
     if (contour.rows !== 4) {
-        console.error('윤곽선의 꼭짓점 개수가 4개가 아닙니다.');
-        return null;
+        console.error('윤곽선의 꼭짓점 개수가 4개가 아닙니다. 원본 이미지를 그대로 반환합니다.');
+        return srcMat.clone();
     }
 
     // OpenCV.js WASM 런타임이 준비된 이후에만 cv.* API를 사용할 수 있다.
@@ -79,8 +79,9 @@ export async function warpDocument(srcMat: cv.Mat, contour: cv.Mat): Promise<cv.
         const maxHeight = Math.max(Math.round(heightLeft), Math.round(heightRight));
 
         if (maxWidth <= 0 || maxHeight <= 0) {
-            console.error('계산된 결과물 크기가 유효하지 않습니다.');
-            return null;
+            console.error('계산된 결과물 크기가 유효하지 않습니다. 원본 이미지를 그대로 반환합니다.');
+            dst.delete();
+            return srcMat.clone();
         }
 
         // 원본 이미지에서의 4개 꼭짓점 (변환 전)
@@ -115,9 +116,9 @@ export async function warpDocument(srcMat: cv.Mat, contour: cv.Mat): Promise<cv.
         return dst;
 
     } catch (error) {
-        console.error('원근 변환 중 오류 발생:', error);
+        console.error('원근 변환 중 오류 발생:', error, '원본 이미지를 그대로 반환합니다.');
         dst.delete();
-        return null;
+        return srcMat.clone();
     } finally {
         srcTri?.delete();
         dstTri?.delete();
