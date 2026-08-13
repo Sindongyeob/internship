@@ -1,7 +1,7 @@
 import path from 'node:path';
 import sharp from 'sharp';
 import { ensureCv } from './cvReady.js';
-import { detectDocument } from './scanner.js';
+import { planScan } from './scanner.js';
 import { warpDocument } from './warping.js';
 
 /**
@@ -48,14 +48,23 @@ export async function warpImage(inputPath: string): Promise<string> {
         const processStart = performance.now();
         // ↑↑↑ 시간 측정용 ↑↑↑
 
-        contour = await detectDocument(srcMat);
-        if (!contour) {
-            console.warn('문서(사각형) 영역을 찾지 못했습니다. 원본 이미지를 그대로 반환합니다.');
-        } else {
+        const { decision, documentContour } = await planScan(srcMat);
+        contour = documentContour; // finally 블록에서 delete 되도록 그대로 넘김
+
+        console.log('전처리 판정:', decision.reasons.join(' / ') || '(사유 없음)');
+        console.log('metrics:', JSON.stringify(decision.metrics, null, 2));
+
+        if (decision.isClean) {
+            // 깨끗한 스캔본 → warp 스킵, 원본 그대로 저장
+            console.log('깨끗본으로 판단 → 원근 변환 생략, 원본 저장');
+        } else if (contour) {
             warped = await warpDocument(srcMat, contour);
             if (!warped) {
                 console.warn('원근 변환에 실패했습니다. 원본 이미지를 그대로 반환합니다.');
             }
+        } else {
+            // 보정이 필요하다고 판정됐지만 문서 4각형 검출 실패
+            console.warn('기하 보정이 필요하나 문서 영역을 못 찾음 → 원본 저장');
         }
 
         // ↓↓↓ 시간 측정용 - 나중에 이 줄만 삭제하면 됨 ↓↓↓
