@@ -45,17 +45,28 @@ function orderPoints(points: Point[]): [Point, Point, Point, Point] {
 }
 
 /**
+ * warpDocument()의 반환 타입.
+ * - mat: 결과 이미지 (cv.Mat). 항상 유효하다 — 성공 시 변환된 이미지, 실패 시 srcMat의 복사본.
+ * - success: 원근 변환에 실제로 성공했는지 여부.
+ * - reason: success가 false일 때, 실패 이유. 호출부(index.ts)가 JSON 로그를 남길 때 사용한다.
+ */
+export interface WarpDocumentResult {
+    mat: cv.Mat;
+    success: boolean;
+    reason?: string;
+}
+
+/**
  * 검출된 문서 윤곽선을 기준으로 원근 변환(Perspective Transform)을 적용하여
  * 기울어진 문서를 반듯한 직사각형 이미지로 펴줍니다.
  *
  * @param srcMat 원본 이미지 (cv.Mat)
  * @param contour scanner.ts의 detectDocument가 반환한 4개 꼭짓점 윤곽선 (cv.Mat)
- * @returns 반듯하게 펴진 문서 이미지 (cv.Mat). 실패 시 srcMat의 복사본(원본 이미지)
+ * @returns { mat, success, reason } — mat은 실패 시에도 srcMat의 복사본(원본 이미지)으로 항상 채워진다
  */
-export async function warpDocument(srcMat: cv.Mat, contour: cv.Mat): Promise<cv.Mat> {
+export async function warpDocument(srcMat: cv.Mat, contour: cv.Mat): Promise<WarpDocumentResult> {
     if (contour.rows !== 4) {
-        console.error('윤곽선의 꼭짓점 개수가 4개가 아닙니다. 원본 이미지를 그대로 반환합니다.');
-        return srcMat.clone();
+        return { mat: srcMat.clone(), success: false, reason: '윤곽선의 꼭짓점 개수가 4개가 아닙니다.' };
     }
 
     // OpenCV.js WASM 런타임이 준비된 이후에만 cv.* API를 사용할 수 있다.
@@ -79,9 +90,8 @@ export async function warpDocument(srcMat: cv.Mat, contour: cv.Mat): Promise<cv.
         const maxHeight = Math.max(Math.round(heightLeft), Math.round(heightRight));
 
         if (maxWidth <= 0 || maxHeight <= 0) {
-            console.error('계산된 결과물 크기가 유효하지 않습니다. 원본 이미지를 그대로 반환합니다.');
             dst.delete();
-            return srcMat.clone();
+            return { mat: srcMat.clone(), success: false, reason: '계산된 결과물 크기가 유효하지 않습니다.' };
         }
 
         // 원본 이미지에서의 4개 꼭짓점 (변환 전)
@@ -113,12 +123,12 @@ export async function warpDocument(srcMat: cv.Mat, contour: cv.Mat): Promise<cv.
             new cv.Scalar()
         );
 
-        return dst;
+        return { mat: dst, success: true };
 
     } catch (error) {
-        console.error('원근 변환 중 오류 발생:', error, '원본 이미지를 그대로 반환합니다.');
         dst.delete();
-        return srcMat.clone();
+        const reason = `원근 변환 중 오류 발생: ${error instanceof Error ? error.message : String(error)}`;
+        return { mat: srcMat.clone(), success: false, reason };
     } finally {
         srcTri?.delete();
         dstTri?.delete();

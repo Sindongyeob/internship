@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test:edi": "tsx scripts/testEdiSamples.ts"
   },
   "keywords": [],
   "author": "",
@@ -13,11 +14,17 @@
   "description": "",
   "devDependencies": {
     "@types/node": "^26.2.0",
+    "pdf-to-img": "^6.2.0",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   },
   "dependencies": {
     "@techstark/opencv-js": "^5.0.0-release.1",
     "sharp": "^0.35.3"
+  },
+  "overrides": {
+    "pdf-to-img": {
+      "pdfjs-dist": "6.2.108"
+    }
   }
 }

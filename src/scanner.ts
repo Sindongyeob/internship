@@ -13,12 +13,106 @@ const DETECT_MAX_DIM = 2000;
 // 오검출되는 경우가 있다. 이런 경우를 걸러내기 위한 하한선.
 const MIN_AREA_RATIO = 0.05;
 
+// 아래 네 상수는 "그럴듯한 문서 사각형"인지 걸러내는 형태 검증 기준이다.
+// 배경의 표/창틀/그림자 경계 등 우연히 닫힌 4각형이 잡히는 경우, 실제 문서와
+// 달리 마름모꼴로 찌그러져 있거나(각도), 한쪽으로 지나치게 길쭉한(변 비율/종횡비)
+// 경우가 많아 이 기준으로 상당수 오검출을 걸러낼 수 있다.
+const MIN_CORNER_ANGLE_DEG = 65;
+const MAX_CORNER_ANGLE_DEG = 115;
+const MAX_SIDE_RATIO = 4; // 가장 긴 변 / 가장 짧은 변
+const MAX_ASPECT_RATIO = 4; // 문서 가로/세로(또는 세로/가로) 비율
+
+/**
+ * approxPolyDP가 찾은 4개 꼭짓점이 실제 문서(종이/화면)로 그럴듯한 모양인지 검증한다.
+ * 볼록(convex)하지 않거나, 내각이 직각에서 크게 벗어나거나, 변의 길이 편차가 심하거나,
+ * 종횡비가 비정상적으로 길쭉하면 배경 노이즈를 잘못 잡은 것으로 보고 거부한다.
+ */
+function isPlausibleDocumentQuad(cv: any, approx: cv.Mat): boolean {
+    if (!cv.isContourConvex(approx)) return false;
+
+    const data = approx.data32S;
+    const points: { x: number; y: number }[] = [];
+    for (let i = 0; i < 4; i++) {
+        points.push({ x: data[i * 2], y: data[i * 2 + 1] });
+    }
+
+    const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+    // 순서대로 이어진 변 4개: (0,1) (1,2) (2,3) (3,0)
+    const sides = [0, 1, 2, 3].map((i) => dist(points[i], points[(i + 1) % 4]));
+
+    const maxSide = Math.max(...sides);
+    const minSide = Math.min(...sides);
+    if (minSide === 0 || maxSide / minSide > MAX_SIDE_RATIO) return false;
+
+    const angleAt = (prev: { x: number; y: number }, curr: { x: number; y: number }, next: { x: number; y: number }) => {
+        const v1 = { x: prev.x - curr.x, y: prev.y - curr.y };
+        const v2 = { x: next.x - curr.x, y: next.y - curr.y };
+        const mag1 = Math.hypot(v1.x, v1.y);
+        const mag2 = Math.hypot(v2.x, v2.y);
+        if (mag1 === 0 || mag2 === 0) return 0;
+        const cos = Math.min(1, Math.max(-1, (v1.x * v2.x + v1.y * v2.y) / (mag1 * mag2)));
+        return (Math.acos(cos) * 180) / Math.PI;
+    };
+
+    for (let i = 0; i < 4; i++) {
+        const angle = angleAt(points[(i + 3) % 4], points[i], points[(i + 1) % 4]);
+        if (angle < MIN_CORNER_ANGLE_DEG || angle > MAX_CORNER_ANGLE_DEG) return false;
+    }
+
+    // 마주보는 변끼리 평균 내어 가로/세로 길이를 추정한다: (0,1)-(2,3)이 한 쌍, (1,2)-(3,0)이 한 쌍.
+    const width = (sides[0] + sides[2]) / 2;
+    const height = (sides[1] + sides[3]) / 2;
+    const aspect = Math.max(width, height) / Math.min(width, height);
+    if (aspect > MAX_ASPECT_RATIO) return false;
+
+    return true;
+}
+
+// 후보 사각형 내부에 실제 내용(텍스트/선/그림 등)이 있는지 검사하는 최소 명도 표준편차 기준.
+// 표의 빈 칸이나 문서 여백처럼 기하학적으로는 완벽한 사각형(볼록·직각·정상 종횡비)이어도
+// 내부가 텅 비어 있으면 아무 정보도 담지 못한 채 원근 변환만 적용되는 사고가 생긴다.
+// 배경만 있으면 명도 표준편차가 거의 0에 가깝고, 텍스트/선이 있으면 명암 대비로 확연히 커진다.
+const MIN_CONTENT_STDDEV = 8;
+
+/**
+ * 후보 사각형 내부(마스크 영역)의 명도 표준편차를 검사해, 실제 내용이 있는지 확인한다.
+ * @param grayMat approx와 같은 좌표계(검출 스케일)의 흑백 이미지
+ */
+function hasEnoughContent(cv: any, grayMat: cv.Mat, approx: cv.Mat): boolean {
+    const mask = cv.Mat.zeros(grayMat.rows, grayMat.cols, cv.CV_8UC1);
+    const contourVec = new cv.MatVector();
+    const mean = new cv.Mat();
+    const stddev = new cv.Mat();
+
+    try {
+        contourVec.push_back(approx);
+        cv.fillPoly(mask, contourVec, new cv.Scalar(255));
+        cv.meanStdDev(grayMat, mean, stddev, mask);
+        return stddev.data64F[0] >= MIN_CONTENT_STDDEV;
+    } finally {
+        mask.delete();
+        contourVec.delete();
+        mean.delete();
+        stddev.delete();
+    }
+}
+
+/**
+ * detectDocument()의 반환 타입.
+ * - contour: 검출된 4개 꼭짓점 좌표 (cv.Mat). 실패 시 null.
+ * - reason: contour가 null일 때, 실패 이유. 호출부(index.ts)가 JSON 로그를 남길 때 사용한다.
+ */
+export interface DetectDocumentResult {
+    contour: cv.Mat | null;
+    reason?: string;
+}
+
 /**
  * 이미지에서 종이나 화면(가장 큰 사각형)의 4개 모서리 좌표를 찾습니다.
  * @param srcMat 원본 이미지 객체 (cv.Mat)
- * @returns 4개의 꼭짓점 좌표를 담은 cv.Mat (찾지 못했거나, 전체 이미지 대비 너무 작으면 null)
+ * @returns { contour, reason } — 찾지 못했거나 전체 이미지 대비 너무 작으면 contour는 null
  */
-export async function detectDocument(srcMat: cv.Mat): Promise<cv.Mat | null> {
+export async function detectDocument(srcMat: cv.Mat): Promise<DetectDocumentResult> {
     // OpenCV.js WASM 런타임이 준비된 이후에만 cv.* API를 사용할 수 있다.
     const cv = await ensureCv();
 
@@ -73,8 +167,14 @@ export async function detectDocument(srcMat: cv.Mat): Promise<cv.Mat | null> {
                 // 다각형으로 근사화 (둘레의 2% 오차 허용)
                 cv.approxPolyDP(contour, approx, 0.02 * perimeter, true);
 
-                // 꼭짓점이 4개이고, 지금까지 찾은 면적보다 큰 경우
-                if (approx.rows === 4 && area > maxArea) {
+                // 꼭짓점이 4개이고, 지금까지 찾은 면적보다 크고, 문서로 그럴듯한 모양이면서
+                // 실제 내용(텍스트/선 등)도 있는 경우 (모양만 맞고 속이 빈 표 칸 등을 배제)
+                if (
+                    approx.rows === 4 &&
+                    area > maxArea &&
+                    isPlausibleDocumentQuad(cv, approx) &&
+                    hasEnoughContent(cv, detectSrc, approx)
+                ) {
                     // 이전 데이터가 있으면 메모리 해제
                     if (documentContour) documentContour.delete();
 
@@ -100,20 +200,24 @@ export async function detectDocument(srcMat: cv.Mat): Promise<cv.Mat | null> {
             const originalArea = maxArea / (scale * scale);
             const imageArea = srcMat.cols * srcMat.rows;
             if (originalArea / imageArea < MIN_AREA_RATIO) {
-                console.warn(
+                const reason =
                     `검출된 영역이 전체 이미지의 ${(originalArea / imageArea * 100).toFixed(1)}%로 너무 작습니다 ` +
-                    `(최소 ${(MIN_AREA_RATIO * 100).toFixed(0)}% 필요). 문서 테두리가 사진 프레임 밖으로 잘렸을 수 있습니다.`
-                );
+                    `(최소 ${(MIN_AREA_RATIO * 100).toFixed(0)}% 필요). 문서 테두리가 사진 프레임 밖으로 잘렸을 수 있습니다.`;
                 documentContour.delete();
                 documentContour = null;
+                return { contour: null, reason };
             }
         }
 
-        return documentContour;
+        if (!documentContour) {
+            return { contour: null, reason: '문서(사각형) 영역을 찾지 못했습니다.' };
+        }
+
+        return { contour: documentContour };
 
     } catch (error) {
-        console.error('검출 중 오류 발생:', error);
-        return null;
+        const reason = `검출 중 오류 발생: ${error instanceof Error ? error.message : String(error)}`;
+        return { contour: null, reason };
     } finally {
         // [중요] C++ WebAssembly 기반이므로 사용이 끝난 메모리는 직접 해제해야 함
         gray.delete();
